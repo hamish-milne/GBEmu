@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.5)
+project(GBEmu)
+
+set(CMAKE_BUILD_TYPE "Release")
+if(MSVC)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /std:c11 /experimental:c11atomics")
+endif()
+set(BUILD_EXAMPLE_PROGRAMS OFF)
+set(BUILD_TESTS OFF)
+set(BUILD_DYNAMIC_LIBS OFF)
+add_subdirectory(glfw)
+add_subdirectory(libsoundio)
