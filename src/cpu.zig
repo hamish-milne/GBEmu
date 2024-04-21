@@ -2,9 +2,10 @@ const std = @import("std");
 const memory = @import("memory.zig");
 const Memory = memory.Memory;
 const InterruptFlags = memory.InterruptFlags;
+const graphics = @import("graphics.zig");
 
 // zig fmt: off
-const CPU = struct {
+pub const CPU = struct {
     Time: struct {
         Current: u64 = 0,
         NextInstruction: u64 = 0,
@@ -46,6 +47,24 @@ const CPU = struct {
         },
     },
     IME: bool,
+
+    mem: *Memory,
+
+    fn read(self: *CPU, addr: u16) u8 {
+        return self.mem.read(addr);
+    }
+
+    fn write(self: *CPU, addr: u16, value: u8) void {
+        self.mem.write(addr, value);
+    }
+
+    fn readU16(self: *CPU, addr: u16) u16 {
+        return self.mem.readU16(addr);
+    }
+
+    fn writeU16(self: *CPU, addr: u16, value: u16) void {
+        self.mem.writeU16(addr, value);
+    }
 
     fn add(self: *CPU, a: u8, b: u8, c: u1, setC: bool) u8 {
         const result = @as(u16, a) + @as(u16, b) + @as(u16, c);
@@ -535,21 +554,23 @@ const CPU = struct {
         return cost;
     }
 
-    fn mainLoop(self: *CPU) void {
+    pub fn mainLoop(self: *CPU, mem: *Memory, screen: *graphics.Screen) void {
+        self.mem = mem;
+        const IOPorts = &mem.IOPorts;
         while (true) {
             const canDoInterrupts = switch (self.RunState) {
                 .Running => true,
-                .HALT => self.IOPorts.IF.Button,
+                .HALT => IOPorts.IF.Button,
                 .STOP => false,
             };
             if (self.IME and canDoInterrupts) {
-                const IF: u8 = @bitCast(self.IOPorts.IF);
-                const IE: u8 = self.HiRAM[0x7F];
+                const IF: u8 = @bitCast(IOPorts.IF);
+                const IE: u8 = mem.HiRAM[0x7F];
                 const interruptsN = IF & IE & 0b11111;
                 const interrupts: InterruptFlags = @bitCast(interruptsN);
                 if (interruptsN != 0) {
                     self.IME = false;
-                    self.IOPorts.IF = @bitCast(@as(u8, 0));
+                    IOPorts.IF = @bitCast(@as(u8, 0));
                     self.push(self.PC);
                     self.PC = if (interrupts.VBlank) 0x40
                         else if (interrupts.LCDC) 0x48
@@ -565,55 +586,55 @@ const CPU = struct {
                 self.Time.NextInstruction = self.Time.Current + self.opMain() * 4;
             }
             self.Time.Current = @max(self.Time.Current, self.Time.LCD);
-            if (self.IOPorts.LCDC.LCDEnable) {
-                switch (self.IOPorts.STAT.Mode) {
+            if (IOPorts.LCDC.LCDEnable) {
+                switch (IOPorts.STAT.Mode) {
                     .HBlank => {
-                        self.IOPorts.LY += 1;
-                        if (self.IOPorts.LY >= 144) {
-                            self.IOPorts.IF.VBlank = true;
-                            self.IOPorts.STAT.Mode = .VBlank;
-                            if (self.IOPorts.STAT.InterruptEnable.VBlank)
-                                self.IOPorts.IF.LCDC = true;
+                        IOPorts.LY += 1;
+                        if (IOPorts.LY >= 144) {
+                            IOPorts.IF.VBlank = true;
+                            IOPorts.STAT.Mode = .VBlank;
+                            if (IOPorts.STAT.InterruptEnable.VBlank)
+                                IOPorts.IF.LCDC = true;
                             self.Time.LCD += 456;
                             return;
                         } else {
-                            self.IOPorts.STAT.Mode = .OAMRead;
-                            if (self.IOPorts.STAT.InterruptEnable.OAMRead)
-                                self.IOPorts.IF.LCDC = true;
+                            IOPorts.STAT.Mode = .OAMRead;
+                            if (IOPorts.STAT.InterruptEnable.OAMRead)
+                                IOPorts.IF.LCDC = true;
                             self.Time.LCD += 80;
                         }
                     },
                     .VBlank => {
-                        if (self.IOPorts.LY >= 153) {
-                            self.IOPorts.LY = 0;
-                            self.IOPorts.STAT.Mode = .OAMRead;
-                            if (self.IOPorts.STAT.InterruptEnable.OAMRead)
-                                self.IOPorts.IF.LCDC = true;
+                        if (IOPorts.LY >= 153) {
+                            IOPorts.LY = 0;
+                            IOPorts.STAT.Mode = .OAMRead;
+                            if (IOPorts.STAT.InterruptEnable.OAMRead)
+                                IOPorts.IF.LCDC = true;
                             self.Time.LCD += 80;
                         } else {
-                            self.IOPorts.LY += 1;
+                            IOPorts.LY += 1;
                             self.Time.LCD += 456;
                         }
                     },
                     .OAMRead => {
-                        self.IOPorts.STAT.Mode = .Transfer;
+                        IOPorts.STAT.Mode = .Transfer;
                         self.Time.LCD += 172;
                     },
                     .Transfer => {
-                        self.drawLine();
-                        self.IOPorts.STAT.Mode = .HBlank;
-                        if (self.IOPorts.STAT.InterruptEnable.HBlank)
-                            self.IOPorts.IF.LCDC = true;
+                        graphics.drawLine(mem, screen);
+                        IOPorts.STAT.Mode = .HBlank;
+                        if (IOPorts.STAT.InterruptEnable.HBlank)
+                            IOPorts.IF.LCDC = true;
                         self.Time.LCD += 204;
                     },
                 }
             } else {
-                self.IOPorts.STAT.Mode = .VBlank;
+                IOPorts.STAT.Mode = .VBlank;
                 self.Time.LCD += 70224;
                 return;
             }
-            if (self.IOPorts.LY == self.IOPorts.LYC and self.IOPorts.STAT.InterruptEnable.LYCCoincidence) {
-                self.IOPorts.IF.LCDC = true;
+            if (IOPorts.LY == IOPorts.LYC and IOPorts.STAT.InterruptEnable.LYCCoincidence) {
+                IOPorts.IF.LCDC = true;
             }
         }
     }

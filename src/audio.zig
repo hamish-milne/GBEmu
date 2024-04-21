@@ -39,8 +39,8 @@ fn RingBuffer(comptime T: type, comptime stride: usize, comptime len: usize) typ
     };
 }
 
-pub const SampleRate = 48000;
-const AudioRingBuffer = RingBuffer(f32, 2, SampleRate / 50);
+const SampleRate = 48000;
+pub const AudioRingBuffer = RingBuffer(f32, 2, SampleRate / 50);
 
 fn soundioCall(err: c_int) !void {
     if (err != 0) {
@@ -54,7 +54,7 @@ pub const State = struct {
     Device: *C.SoundIoDevice,
     OutStream: *C.SoundIoOutStream,
 
-    fn init(self: *State, buffer: *AudioRingBuffer) !void {
+    pub fn init(self: *State, buffer: *AudioRingBuffer) !void {
         self.SoundIO = C.soundio_create() orelse return error.AudioError;
         try soundioCall(C.soundio_connect(self.SoundIO));
         C.soundio_flush_events(self.SoundIO);
@@ -73,7 +73,7 @@ pub const State = struct {
         try soundioCall(C.soundio_outstream_start(self.OutStream));
     }
 
-    fn deinit(self: *State) void {
+    pub fn deinit(self: *State) void {
         C.soundio_outstream_destroy(self.OutStream);
         C.soundio_device_unref(self.Device);
         C.soundio_destroy(self.SoundIO);
@@ -81,7 +81,7 @@ pub const State = struct {
 };
 
 fn writeCallback(outStream: [*c]C.SoundIoOutStream, frameCountMin: c_int, frameCountMax: c_int) callconv(.C) void {
-    const buffer: *AudioRingBuffer = @ptrCast(outStream.userdata);
+    const buffer: *AudioRingBuffer = @alignCast(@ptrCast(outStream.*.userdata));
     _ = frameCountMin;
     const layout = outStream.*.layout;
 

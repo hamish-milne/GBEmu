@@ -5,13 +5,15 @@ const memory = @import("memory.zig");
 const cpu = @import("cpu.zig");
 const graphics = @import("graphics.zig");
 
-const GameState = struct {
+pub const GameState = struct {
     Memory: memory.Memory,
     CPU: cpu.CPU,
     Screen: graphics.Screen,
 };
 
 const BootROM = @embedFile("DMG_ROM.bin");
+
+var audioBuffer: audio.AudioRingBuffer = .{};
 
 pub fn main() !void {
     // if (C.glfwInit() == 0) return error.NoGLFW;
@@ -20,7 +22,7 @@ pub fn main() !void {
     // defer C.glfwTerminate();
 
     var audioState: audio.State = undefined;
-    try audioState.init();
+    try audioState.init(&audioBuffer);
     defer audioState.deinit();
 
     var state: GameState = undefined;
@@ -28,7 +30,7 @@ pub fn main() !void {
     state.Memory.ROM = BootROM;
     state.CPU.PC = 0x100;
     while (true) {
-        state.mainLoop();
+        state.CPU.mainLoop(&state.Memory, &state.Screen);
     }
 
     // var color: u8 = 0;

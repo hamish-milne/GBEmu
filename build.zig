@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
 
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -31,12 +31,15 @@ pub fn build(b: *std.Build) void {
         } else target,
     });
 
-    inline for (.{ "User32", "Shell32", "Ole32", "Gdi32", "OpenGL32" }) |lib| {
-        exe.linkSystemLibrary(lib);
+    if (target.isWindows()) {
+        inline for (.{ "User32", "Shell32", "Ole32", "Gdi32", "OpenGL32" }) |lib| {
+            exe.linkSystemLibrary(lib);
+        }
     }
 
-    exe.addObjectFile(.{ .path = "deps/lib/glfw3.lib" });
-    exe.addObjectFile(.{ .path = "deps/lib/soundio.lib" });
+    inline for (.{ "glfw3", "soundio" }) |lib| {
+        exe.addObjectFile(.{ .path = try std.mem.concat(b.allocator, u8, &[_][]const u8{ "deps/lib/" ++ lib, target.staticLibSuffix() }) });
+    }
     exe.addIncludePath(.{ .path = "deps/include" });
 
     // This declares intent for the executable to be installed into the

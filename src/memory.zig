@@ -14,7 +14,7 @@ pub const TileDataFlag = enum(u1) {
     x80,
 };
 
-const Palette = std.PackedIntArray(u2, 4);
+pub const Palette = std.PackedIntArray(u2, 4);
 
 pub fn asBytes(comptime T: type, value: *T) *[@sizeOf(T)]u8 {
     return @as([*]u8, @ptrCast(value))[0..@sizeOf(T)];
@@ -277,7 +277,7 @@ pub const Memory = struct {
     },
     ROM: []const u8,
 
-    fn read(self: *Memory, addr: u16) u8 {
+    pub fn read(self: *Memory, addr: u16) u8 {
         const topNibble: u4 = @intCast((addr & 0xF000) >> 12);
         return switch (topNibble) {
             0x0...0x3 => if (addr >= self.ROM.len) 0 else self.ROM[addr],
@@ -323,7 +323,7 @@ pub const Memory = struct {
         };
     }
 
-    fn write(self: *Memory, addr: u16, value: u8) void {
+    pub fn write(self: *Memory, addr: u16, value: u8) void {
         const topNibble: u4 = @intCast((addr & 0xF000) >> 12);
         switch (topNibble) {
             0x0...0x1 => {
@@ -401,11 +401,11 @@ pub const Memory = struct {
         }
     }
 
-    fn readU16(self: *Memory, addr: u16) u16 {
+    pub fn readU16(self: *Memory, addr: u16) u16 {
         return (@as(u16, self.read(addr + 1)) << 8) | self.read(addr);
     }
 
-    fn writeU16(self: *Memory, addr: u16, value: u16) void {
+    pub fn writeU16(self: *Memory, addr: u16, value: u16) void {
         self.write(addr, @truncate(value));
         self.write(addr + 1, @truncate(value >> 8));
     }
