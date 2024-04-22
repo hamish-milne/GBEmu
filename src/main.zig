@@ -45,3 +45,7 @@ pub fn main() !void {
     //     state.mainLoop();
     // }
 }
+
+test {
+    std.testing.refAllDecls(@This());
+}

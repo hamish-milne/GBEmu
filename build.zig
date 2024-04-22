@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) !void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{
+    const options = .{
         .name = "GBEmu",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
@@ -29,18 +29,9 @@ pub fn build(b: *std.Build) !void {
             target2.abi = .msvc;
             break :blk target2;
         } else target,
-    });
+    };
 
-    if (target.isWindows()) {
-        inline for (.{ "User32", "Shell32", "Ole32", "Gdi32", "OpenGL32" }) |lib| {
-            exe.linkSystemLibrary(lib);
-        }
-    }
-
-    inline for (.{ "glfw3", "soundio" }) |lib| {
-        exe.addObjectFile(.{ .path = try std.mem.concat(b.allocator, u8, &[_][]const u8{ "deps/lib/" ++ lib, target.staticLibSuffix() }) });
-    }
-    exe.addIncludePath(.{ .path = "deps/include" });
+    const exe = b.addExecutable(options);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -70,19 +61,33 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    // // Creates a step for unit testing. This only builds the test executable
-    // // but does not run it.
-    // const unit_tests = b.addTest(.{
-    //     .root_source_file = .{ .path = "src/main.zig" },
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
+    const unit_tests = b.addTest(blk: {
+        var opts: std.build.TestOptions = options;
+        opts.name = "test";
+        break :blk opts;
+    });
+    b.installArtifact(unit_tests);
 
-    // const run_unit_tests = b.addRunArtifact(unit_tests);
+    const run_unit_tests = b.addRunArtifact(unit_tests);
 
-    // // Similar to creating the run step earlier, this exposes a `test` step to
-    // // the `zig build --help` menu, providing a way for the user to request
-    // // running the unit tests.
-    // const test_step = b.step("test", "Run unit tests");
-    // test_step.dependOn(&run_unit_tests.step);
+    // Similar to creating the run step earlier, this exposes a `test` step to
+    // the `zig build --help` menu, providing a way for the user to request
+    // running the unit tests.
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_unit_tests.step);
+
+    inline for (.{ exe, unit_tests }) |obj| {
+        if (target.isWindows()) {
+            inline for (.{ "User32", "Shell32", "Ole32", "Gdi32", "OpenGL32" }) |lib| {
+                obj.linkSystemLibrary(lib);
+            }
+        }
+
+        inline for (.{ "glfw3", "soundio" }) |lib| {
+            obj.addObjectFile(.{ .path = try std.mem.concat(b.allocator, u8, &[_][]const u8{ "deps/lib/" ++ lib, target.staticLibSuffix() }) });
+        }
+        obj.addIncludePath(.{ .path = "deps/include" });
+    }
 }

@@ -232,7 +232,7 @@ pub const CPU = struct {
                         0 => 1,
                         // LD (nn),SP
                         1 => blk: {
-                            self.SP = self.readPC16();
+                            self.writeU16(self.readPC16(), self.SP);
                             break :blk 5;
                         },
                         // STOP
@@ -248,8 +248,11 @@ pub const CPU = struct {
                         },
                         else => blk: {
                             // JR NZ/NC/Z/C
-                            if (self.cond(inst))
+                            if (self.cond(inst)) {
                                 self.jumpRel();
+                            } else {
+                                self.PC += 1;
+                            }
                             break :blk 2;
                         },
                     },
@@ -272,7 +275,7 @@ pub const CPU = struct {
                             2 => .{ .a = &self.R.u16.HL, .b = 1 },
                             3 => .{ .a = &self.R.u16.HL, .b = -1 },
                         };
-                        if (!bit0) {
+                        if (!bit3) {
                             self.write(regPtr.a.*, self.R.u8.A);
                         } else {
                             self.R.u8.A = self.read(regPtr.a.*);
@@ -427,6 +430,8 @@ pub const CPU = struct {
                             // JP NZ/NC/Z/C
                             if (self.cond(inst)) {
                                 self.PC = self.readPC16();
+                            } else {
+                                self.PC += 2;
                             }
                             break :blk 3;
                         },
@@ -480,6 +485,8 @@ pub const CPU = struct {
                             if (self.cond(inst)) {
                                 self.push(self.PC);
                                 self.PC = self.readPC16();
+                            } else {
+                                self.PC += 2;
                             }
                             break :blk 3;
                         },
@@ -640,3 +647,378 @@ pub const CPU = struct {
     }
 };
 // zig fmt: on
+
+const CPURegs = struct {
+    SP: ?u16 = null,
+    PC: ?u16 = null,
+    AF: ?u16 = null,
+    BC: ?u16 = null,
+    DE: ?u16 = null,
+    HL: ?u16 = null,
+};
+
+const MemorySpec = struct {
+    addr: u16,
+    initial: ?u8 = null,
+    expected: ?u8 = null,
+};
+
+const TestSpec = struct {
+    input: []const u8,
+    initial: ?CPURegs = null,
+    expected: CPURegs,
+    memory: ?[]const MemorySpec = null,
+};
+
+const expectEqual = std.testing.expectEqual;
+
+fn opcodeTest(t: TestSpec) !void {
+    var mem: Memory = undefined;
+    var cpu: CPU = undefined;
+    @memset(memory.asBytes(Memory, &mem), 0);
+    @memset(memory.asBytes(CPU, &cpu), 0);
+    if (t.initial) |init| {
+        cpu.SP = init.SP orelse 0;
+        cpu.PC = init.PC orelse 0;
+        cpu.R.u16.AF = init.AF orelse 0;
+        cpu.R.u16.BC = init.BC orelse 0;
+        cpu.R.u16.DE = init.DE orelse 0;
+        cpu.R.u16.HL = init.HL orelse 0;
+    }
+    if (t.memory) |list| {
+        for (list) |item| {
+            if (item.initial) |value| {
+                mem.write(item.addr, value);
+            }
+        }
+    }
+    cpu.mem = &mem;
+    mem.ROM = t.input;
+    _ = cpu.opMain();
+    if (t.expected.SP) |expected| {
+        try expectEqual(expected, cpu.SP);
+    }
+    if (t.expected.PC) |expected| {
+        try expectEqual(expected, cpu.PC);
+    }
+    if (t.expected.AF) |expected| {
+        try expectEqual(expected, cpu.R.u16.AF);
+    }
+    if (t.expected.BC) |expected| {
+        try expectEqual(expected, cpu.R.u16.BC);
+    }
+    if (t.expected.DE) |expected| {
+        try expectEqual(expected, cpu.R.u16.DE);
+    }
+    if (t.expected.HL) |expected| {
+        try expectEqual(expected, cpu.R.u16.HL);
+    }
+    if (t.memory) |list| {
+        for (list) |item| {
+            if (item.expected) |expected| {
+                try expectEqual(expected, mem.read(item.addr));
+            }
+        }
+    }
+}
+
+test "NOP" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x00,
+        },
+        .expected = .{
+            .PC = 1,
+        },
+    });
+}
+
+test "LD (nn),SP" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x08, 0x0D, 0xF0,
+        },
+        .initial = .{
+            .SP = 0x1234,
+        },
+        .expected = .{
+            .PC = 3,
+        },
+        .memory = &[_]MemorySpec{
+            .{ .addr = 0xF00D, .expected = 0x34 },
+            .{ .addr = 0xF00E, .expected = 0x12 },
+        },
+    });
+}
+
+test "STOP" {
+    try opcodeTest(.{
+        .input = &[_]u8{ 0x10, 0x00 },
+        .expected = .{
+            .PC = 2,
+        },
+    });
+}
+
+test "JR" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x18, 0x34,
+        },
+        .expected = .{
+            .PC = 0x36,
+        },
+    });
+}
+
+test "JR NZ" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x20, 0x34,
+        },
+        .initial = .{
+            .AF = 1 << 7,
+        },
+        .expected = .{
+            .PC = 2,
+        },
+    });
+}
+
+test "JR Z" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x28, 0x34,
+        },
+        .initial = .{
+            .AF = 1 << 7,
+        },
+        .expected = .{
+            .PC = 0x36,
+        },
+    });
+}
+
+test "JR NC" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x30, 0x34,
+        },
+        .initial = .{
+            .AF = 1 << 4,
+        },
+        .expected = .{
+            .PC = 2,
+        },
+    });
+}
+
+test "JR C" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x38, 0x34,
+        },
+        .initial = .{
+            .AF = 1 << 4,
+        },
+        .expected = .{
+            .PC = 0x36,
+        },
+    });
+}
+
+test "LD BC,nn" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x01, 0x34, 0x12,
+        },
+        .expected = .{
+            .PC = 3,
+            .BC = 0x1234,
+        },
+    });
+}
+
+test "LD DE,nn" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x11, 0x34, 0x12,
+        },
+        .expected = .{
+            .PC = 3,
+            .DE = 0x1234,
+        },
+    });
+}
+
+test "LD HL,nn" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x21, 0x34, 0x12,
+        },
+        .expected = .{
+            .PC = 3,
+            .HL = 0x1234,
+        },
+    });
+}
+
+test "LD SP,nn" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x31, 0x34, 0x12,
+        },
+        .expected = .{
+            .PC = 3,
+            .SP = 0x1234,
+        },
+    });
+}
+
+test "LD (BC),A" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x02,
+        },
+        .initial = .{
+            .BC = 0xF00D,
+            .AF = 0x5600,
+        },
+        .expected = .{
+            .PC = 1,
+        },
+        .memory = &[_]MemorySpec{
+            .{ .addr = 0xF00D, .expected = 0x56 },
+        },
+    });
+}
+
+test "LD (DE),A" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x12,
+        },
+        .initial = .{
+            .DE = 0xF00D,
+            .AF = 0x5600,
+        },
+        .expected = .{
+            .PC = 1,
+        },
+        .memory = &[_]MemorySpec{
+            .{ .addr = 0xF00D, .expected = 0x56 },
+        },
+    });
+}
+
+test "LDI (HL),A" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x22,
+        },
+        .initial = .{
+            .HL = 0xF00D,
+            .AF = 0x5600,
+        },
+        .expected = .{
+            .PC = 1,
+            .HL = 0xF00E,
+        },
+        .memory = &[_]MemorySpec{
+            .{ .addr = 0xF00D, .expected = 0x56 },
+        },
+    });
+}
+
+test "LDD (HL),A" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x32,
+        },
+        .initial = .{
+            .HL = 0xF00D,
+            .AF = 0x5600,
+        },
+        .expected = .{
+            .PC = 1,
+            .HL = 0xF00C,
+        },
+        .memory = &[_]MemorySpec{
+            .{ .addr = 0xF00D, .expected = 0x56 },
+        },
+    });
+}
+
+test "LD A,(BC)" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x0A,
+        },
+        .initial = .{
+            .BC = 0xF00D,
+        },
+        .expected = .{
+            .PC = 1,
+            .AF = 0x5600,
+        },
+        .memory = &[_]MemorySpec{
+            .{ .addr = 0xF00D, .initial = 0x56 },
+        },
+    });
+}
+
+test "LD A,(DE)" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x1A,
+        },
+        .initial = .{
+            .DE = 0xF00D,
+        },
+        .expected = .{
+            .PC = 1,
+            .AF = 0x5600,
+        },
+        .memory = &[_]MemorySpec{
+            .{ .addr = 0xF00D, .initial = 0x56 },
+        },
+    });
+}
+
+test "LDI A,(HL)" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x2A,
+        },
+        .initial = .{
+            .HL = 0xF00D,
+        },
+        .expected = .{
+            .PC = 1,
+            .HL = 0xF00E,
+            .AF = 0x5600,
+        },
+        .memory = &[_]MemorySpec{
+            .{ .addr = 0xF00D, .initial = 0x56 },
+        },
+    });
+}
+
+test "LDD A,(HL)" {
+    try opcodeTest(.{
+        .input = &[_]u8{
+            0x3A,
+        },
+        .initial = .{
+            .HL = 0xF00D,
+        },
+        .expected = .{
+            .PC = 1,
+            .HL = 0xF00C,
+            .AF = 0x5600,
+        },
+        .memory = &[_]MemorySpec{
+            .{ .addr = 0xF00D, .initial = 0x56 },
+        },
+    });
+}
