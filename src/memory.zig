@@ -15,12 +15,13 @@ pub const TileDataFlag = enum(u1) {
 };
 
 pub const Palette = std.PackedIntArray(u2, 4);
+pub const WavePattern = std.PackedIntArray(u4, 32);
 
 pub fn asBytes(comptime T: type, value: *T) *[@sizeOf(T)]u8 {
     return @as([*]u8, @ptrCast(value))[0..@sizeOf(T)];
 }
 
-const IOPorts = struct {
+pub const IOPorts = extern struct {
     // zig fmt: off
     P1: packed struct {
         P10: bool,
@@ -62,7 +63,7 @@ const IOPorts = struct {
         // NR12
         EnvelopeSweep: u3,
         EnvelopeDirection: u1,
-        EnvelopeInitial: u4,
+        InitialVolume: u4,
         // NR13..14
         Period: u11,
         _1: u3,
@@ -77,7 +78,7 @@ const IOPorts = struct {
         // NR22
         EnvelopeSweep: u3,
         EnvelopeDirection: u1,
-        EnvelopeInitial: u4,
+        InitialVolume: u4,
         // NR23..24
         Period: u11,
         _: u3,
@@ -93,10 +94,10 @@ const IOPorts = struct {
         Length: u8,
         // NR32
         _1: u5,
-        OutputLevel: enum(u2) { Mute, Full, Half, Quarter },
+        InitialVolume: u2,
         _2: u1,
         // NR33..34
-        Frequency: u11,
+        Period: u11,
         _3: u3,
         LengthEnable: bool,
         Initial: bool,
@@ -109,14 +110,14 @@ const IOPorts = struct {
         // NR42
         EnvelopeSweep: u3,
         EnvelopeDirection: u1,
-        EnvelopeInitial: u4,
+        Volume: u4,
         // NR43
         FreqDiv: u3,
         Step: u1,
         Freq: u4,
         // NR44
-        _1: u5,
-        CounterMode: u1,
+        _1: u6,
+        LengthEnable: bool,
         Initial: bool,
     } align(1),
     NR50: packed struct {
@@ -139,7 +140,7 @@ const IOPorts = struct {
         SoundEnable: bool,
     } align(1),
     _4: [9]u8,
-    WavePattern: std.PackedIntArray(u4, 32) align(1),
+    WavePattern: [16]u8 align(1),
     LCDC: packed struct {
         BGEnable: bool,
         SpriteEnable: bool,
@@ -175,16 +176,16 @@ const IOPorts = struct {
     LY: u8 align(1),
     LYC: u8 align(1),
     DMA: u8 align(1),
-    BGP: Palette align(1),
-    OBP0: Palette align(1),
-    OBP1: Palette align(1),
+    BGP: u8 align(1),
+    OBP0: u8 align(1),
+    OBP1: u8 align(1),
     WY: u8 align(1),
     WX: u8 align(1),
-    _5: u32 align(1),
-    BOOT: packed struct {
-        BOOT: bool,
-        _: u7,
-    } align(1),
+    // _5: u32 align(1),
+    // BOOT: packed struct {
+    //     BOOT: bool,
+    //     _: u7,
+    // } align(1),
 };
 
 const WriteMask: IOPorts = .{
@@ -230,9 +231,9 @@ const OAM = [40](packed struct { Y: u8, X: u8, Tile: u8, Flags: packed struct {
 } });
 
 comptime {
-    if (@sizeOf(IOPorts) != 0x51) {
-        unreachable;
-    }
+    // if (@sizeOf(IOPorts) != 0x51) {
+    //     unreachable;
+    // }
     if (@sizeOf(VRAM) != 0x2000) {
         unreachable;
     }
@@ -275,12 +276,54 @@ pub const Memory = struct {
         }
         // zig fmt: on
     },
+    BootROM: []const u8,
     ROM: []const u8,
+    BootROMEnabled: bool,
+
+    pub fn setMBC(
+        self: *Memory,
+    ) void {
+        self.BootROMEnabled = true;
+        switch (self.ROM[0x147]) {
+            0x00 => self.MBC = .ROMOnly,
+            0x01...0x03 => self.MBC = .{ .MBC1 = .{
+                .ROMBank = 1,
+                .RAMBank = .{
+                    .RAMBankSel = 0,
+                },
+                .RAMEnable = false,
+                .Data = undefined,
+            } },
+            0x05...0x06 => self.MBC = .{ .MBC2 = .{
+                .ROMBank = 1,
+                .RAMEnable = false,
+                .Data = undefined,
+            } },
+            0x0F...0x13 => self.MBC = .{ .MBC3 = .{
+                .ROMBank = 1,
+                .RAMBank = 0,
+                .RAMEnable = false,
+                .Data = undefined,
+            } },
+            0x19...0x1E => self.MBC = .{ .MBC5 = .{
+                .ROMBank = 1,
+                .RAMBank = 0,
+                .RAMEnable = false,
+                .Data = undefined,
+            } },
+            else => unreachable,
+        }
+    }
 
     pub fn read(self: *Memory, addr: u16) u8 {
         const topNibble: u4 = @intCast((addr & 0xF000) >> 12);
         return switch (topNibble) {
-            0x0...0x3 => if (addr >= self.ROM.len) 0 else self.ROM[addr],
+            0x0...0x3 => if (self.BootROMEnabled and addr < self.BootROM.len)
+                self.BootROM[addr]
+            else if (addr < self.ROM.len)
+                self.ROM[addr]
+            else
+                0,
             0x4...0x7 => blk: {
                 const romBank = switch (self.MBC) {
                     .ROMOnly => 0,
@@ -392,6 +435,8 @@ pub const Memory = struct {
                     const localAddr = addr & 0xFF;
                     if (localAddr < ioportsBytes.len) {
                         ioportsBytes[localAddr] = value;
+                    } else if (localAddr == 0x50 and value != 0) {
+                        self.BootROMEnabled = false;
                     }
                 } else {
                     self.HiRAM[addr & 0x7f] = value;
@@ -407,6 +452,6 @@ pub const Memory = struct {
 
     pub fn writeU16(self: *Memory, addr: u16, value: u16) void {
         self.write(addr, @truncate(value));
-        self.write(addr + 1, @truncate(value >> 8));
+        self.write(addr +% 1, @truncate(value >> 8));
     }
 };

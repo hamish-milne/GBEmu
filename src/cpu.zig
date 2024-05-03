@@ -6,11 +6,6 @@ const graphics = @import("graphics.zig");
 
 // zig fmt: off
 pub const CPU = struct {
-    Time: struct {
-        Current: u64 = 0,
-        NextInstruction: u64 = 0,
-        LCD: u64 = 0,
-    },
     RunState: enum {
         Running,
         HALT,
@@ -133,7 +128,7 @@ pub const CPU = struct {
 
     fn readPC(self: *CPU) u8 {
         const pc = self.PC;
-        self.PC += 1;
+        self.PC +%= 1;
         return self.read(pc);
     }
 
@@ -196,13 +191,16 @@ pub const CPU = struct {
         const selector: u2 = @intCast((inst & 0b00011000) >> 3);
         return switch (selector) {
             0 => !self.R.u8.F.Z,
-            1 => !self.R.u8.F.C,
-            2 => self.R.u8.F.Z,
+            1 => self.R.u8.F.Z,
+            2 => !self.R.u8.F.C,
             3 => self.R.u8.F.C
         };
     }
 
-    fn opMain(self: *CPU) u8 {
+    pub fn opMain(self: *CPU) u32 {
+        if (self.PC == 0x100 or self.PC == 0x00) {
+            std.debug.print("", .{});
+        }
         const inst = self.readPC();
         const block2: u3 = @intCast((inst & 0b00111000) >> 3);
         const block1: u3 = @intCast(inst & 0b111);
@@ -228,7 +226,7 @@ pub const CPU = struct {
                 return switch (block1) {
                     0 => switch (block2) {
                         // NOP
-                        0 => 1,
+                        0 => 100,
                         // LD (nn),SP
                         1 => blk: {
                             self.writeU16(self.readPC16(), self.SP);
@@ -560,90 +558,34 @@ pub const CPU = struct {
         return cost;
     }
 
-    pub fn mainLoop(self: *CPU, mem: *Memory, screen: *graphics.Screen) void {
-        self.mem = mem;
-        const IOPorts = &mem.IOPorts;
-        while (true) {
-            const canDoInterrupts = switch (self.RunState) {
-                .Running => true,
-                .HALT => IOPorts.IF.Button,
-                .STOP => false,
-            };
-            if (self.IME and canDoInterrupts) {
-                const IF: u8 = @bitCast(IOPorts.IF);
-                const IE: u8 = mem.HiRAM[0x7F];
-                const interruptsN = IF & IE & 0b11111;
-                const interrupts: InterruptFlags = @bitCast(interruptsN);
-                if (interruptsN != 0) {
-                    self.IME = false;
-                    IOPorts.IF = @bitCast(@as(u8, 0));
-                    self.push(self.PC);
-                    self.PC = if (interrupts.VBlank) 0x40
-                        else if (interrupts.LCDC) 0x48
-                        else if (interrupts.Timer) 0x50
-                        else if (interrupts.SerialIO) 0x58
-                        else if (interrupts.Button) 0x60
-                        else unreachable;
-                }
-                self.Time.Current += 20;
+    pub fn interrupt(self: *CPU) bool {
+        const IOPorts = &self.mem.IOPorts;
+        const canDoInterrupts = switch (self.RunState) {
+            .Running => true,
+            .HALT => IOPorts.IF.Button,
+            .STOP => false,
+        };
+        if (self.IME and canDoInterrupts) {
+            const IF: u8 = @bitCast(IOPorts.IF);
+            const IE: u8 = self.mem.HiRAM[0x7F];
+            const interruptsN = IF & IE & 0b11111;
+            const interrupts: memory.InterruptFlags = @bitCast(interruptsN);
+            if (interruptsN != 0) {
+                self.IME = false;
+                IOPorts.IF = @bitCast(@as(u8, 0));
+                self.push(self.PC);
+                self.PC = if (interrupts.VBlank) 0x40
+                    else if (interrupts.LCDC) 0x48
+                    else if (interrupts.Timer) 0x50
+                    else if (interrupts.SerialIO) 0x58
+                    else if (interrupts.Button) 0x60
+                    else unreachable;
             }
-            while (self.RunState == .Running and self.Time.NextInstruction < self.Time.LCD) {
-                self.Time.Current = @max(self.Time.Current, self.Time.NextInstruction);
-                self.Time.NextInstruction = self.Time.Current + self.opMain() * 4;
-            }
-            self.Time.Current = @max(self.Time.Current, self.Time.LCD);
-            if (IOPorts.LCDC.LCDEnable) {
-                switch (IOPorts.STAT.Mode) {
-                    .HBlank => {
-                        IOPorts.LY += 1;
-                        if (IOPorts.LY >= 144) {
-                            IOPorts.IF.VBlank = true;
-                            IOPorts.STAT.Mode = .VBlank;
-                            if (IOPorts.STAT.InterruptEnable.VBlank)
-                                IOPorts.IF.LCDC = true;
-                            self.Time.LCD += 456;
-                            return;
-                        } else {
-                            IOPorts.STAT.Mode = .OAMRead;
-                            if (IOPorts.STAT.InterruptEnable.OAMRead)
-                                IOPorts.IF.LCDC = true;
-                            self.Time.LCD += 80;
-                        }
-                    },
-                    .VBlank => {
-                        if (IOPorts.LY >= 153) {
-                            IOPorts.LY = 0;
-                            IOPorts.STAT.Mode = .OAMRead;
-                            if (IOPorts.STAT.InterruptEnable.OAMRead)
-                                IOPorts.IF.LCDC = true;
-                            self.Time.LCD += 80;
-                        } else {
-                            IOPorts.LY += 1;
-                            self.Time.LCD += 456;
-                        }
-                    },
-                    .OAMRead => {
-                        IOPorts.STAT.Mode = .Transfer;
-                        self.Time.LCD += 172;
-                    },
-                    .Transfer => {
-                        graphics.drawLine(mem, screen);
-                        IOPorts.STAT.Mode = .HBlank;
-                        if (IOPorts.STAT.InterruptEnable.HBlank)
-                            IOPorts.IF.LCDC = true;
-                        self.Time.LCD += 204;
-                    },
-                }
-            } else {
-                IOPorts.STAT.Mode = .VBlank;
-                self.Time.LCD += 70224;
-                return;
-            }
-            if (IOPorts.LY == IOPorts.LYC and IOPorts.STAT.InterruptEnable.LYCCoincidence) {
-                IOPorts.IF.LCDC = true;
-            }
+            return true;
         }
+        return false;
     }
+
 };
 // zig fmt: on
 
