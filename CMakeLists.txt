@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 project(GBEmu)
 
+set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/deps)
 set(CMAKE_BUILD_TYPE "Release")
 if(MSVC)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /std:c11 /experimental:c11atomics")

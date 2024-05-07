@@ -42,6 +42,7 @@ pub const CPU = struct {
         },
     },
     IME: bool,
+    sc: u32,
 
     mem: *Memory,
 
@@ -61,14 +62,34 @@ pub const CPU = struct {
         self.mem.writeU16(addr, value);
     }
 
-    fn add(self: *CPU, a: u8, b: u8, c: u1, setC: bool) u8 {
-        const result = @as(u16, a) + @as(u16, b) + @as(u16, c);
+    fn add(self: *CPU, a: u8, b: u8, op: enum { Add, Sub }, carry: enum { None, Set, In }) u8 {
+        const c: u1 = switch (carry) {
+            .In => if (self.R.u8.F.C) 1 else 0,
+            else => 0,
+        };
+        const c1 = switch (op) {
+            .Add => c,
+            .Sub => ~c
+        };
+        const b1: u9 = switch (op) {
+            .Add => b,
+            .Sub => ~b,
+        };
+        const a1: u9 = a;
+        const result: u9 = a1 + b1 + c1;
         const value: u8 = @truncate(result);
         self.R.u8.F.Z = value == 0;
-        self.R.u8.F.N = false;
-        self.R.u8.F.H = (a & 0xF) + (b & 0xF) > 0xF;
-        if (setC) {
-            self.R.u8.F.C = result > 0xFF;
+        self.R.u8.F.N = op == .Sub;
+        const resultH = (a1 & 0xF) + (b1 & 0xF) + c1;
+        self.R.u8.F.H = switch (op) {
+            .Add => resultH & 0b10000 != 0,
+            .Sub => resultH & 0b10000 == 0,
+        };
+        if (carry != .None) {
+            self.R.u8.F.C = switch (op) {
+                .Add => result & 0b100000000 != 0,
+                .Sub => result & 0b010000000 != 0,
+            };
         }
         return value;
     }
@@ -198,9 +219,6 @@ pub const CPU = struct {
     }
 
     pub fn opMain(self: *CPU) u32 {
-        if (self.PC == 0x100 or self.PC == 0x00) {
-            std.debug.print("", .{});
-        }
         const inst = self.readPC();
         const block2: u3 = @intCast((inst & 0b00111000) >> 3);
         const block1: u3 = @intCast(inst & 0b111);
@@ -289,8 +307,10 @@ pub const CPU = struct {
                     },
                     4, 5 => blk: {
                         // INC * / DEC * (8 bit)
-                        const incr: i8 = if (!bit0) 1 else -1;
-                        self.writeReg(block2, self.add(self.readReg(block2), @bitCast(incr), 0, false));
+                        self.writeReg(
+                            block2,
+                            self.add(self.readReg(block2), 1, if (bit0) .Sub else .Add, .None)
+                        );
                         break :blk if (block2 == 6) 3 else 1;
                     },
                     6 => blk: {
@@ -302,6 +322,7 @@ pub const CPU = struct {
                         else => blk: {
                             // RLCA, RRCA, RLA, RRA
                             self.R.u8.A = self.rotate(@intCast(block2), self.R.u8.A);
+                            self.R.u8.F.Z = false;
                             break :blk 1;
                         },
                         4 => blk: {
@@ -317,7 +338,7 @@ pub const CPU = struct {
                         },
                         5 => blk: {
                             // CPL
-                            self.R.u8.A = @bitReverse(self.R.u8.A);
+                            self.R.u8.A = ~self.R.u8.A;
                             self.R.u8.F.N = true;
                             self.R.u8.F.H = true;
                             break :blk 1;
@@ -344,14 +365,14 @@ pub const CPU = struct {
                 // ADD, ADC, SUB, SBC, AND, XOR, OR, CP (8 bit, immediate or register)
                 const value = if (!bit6) self.readReg(block1) else self.readPC();
                 switch (block2) {
-                    0 => self.R.u8.A = self.add(self.R.u8.A, value, 0, true),
-                    1 => self.R.u8.A = self.add(self.R.u8.A, value, if (self.R.u8.F.C) 1 else 0, true),
-                    2 => self.R.u8.A = self.add(self.R.u8.A, -%value, 0, true),
-                    3 => self.R.u8.A = self.add(self.R.u8.A, -%value, if (self.R.u8.F.C) 1 else 0, true),
+                    0 => self.R.u8.A = self.add(self.R.u8.A, value, .Add, .Set),
+                    1 => self.R.u8.A = self.add(self.R.u8.A, value, .Add, .In),
+                    2 => self.R.u8.A = self.add(self.R.u8.A, value, .Sub, .Set),
+                    3 => self.R.u8.A = self.add(self.R.u8.A, value, .Sub, .In),
                     4 => self.R.u8.A = self.flags(self.R.u8.A & value, true, false),
                     5 => self.R.u8.A = self.flags(self.R.u8.A ^ value, false, false),
                     6 => self.R.u8.A = self.flags(self.R.u8.A | value, false, false),
-                    7 => _ = self.add(self.R.u8.A, -%value, 0, true),
+                    7 => _ = self.add(self.R.u8.A, value, .Sub, .Set),
                 }
                 return if (!bit6) regCost(block1) else 2;
             } else {
@@ -412,8 +433,8 @@ pub const CPU = struct {
                             break :blk 2;
                         },
                         5 => blk: {
-                            // JP (HL)
-                            self.PC = self.readU16(self.R.u16.HL);
+                            // JP HL
+                            self.PC = self.R.u16.HL;
                             break :blk 1;
                         },
                         7 => blk: {
@@ -480,8 +501,9 @@ pub const CPU = struct {
                         0 ... 3 => blk: {
                             // CALL NZ/NC/Z/C
                             if (self.cond(inst)) {
+                                const dst = self.readPC16();
                                 self.push(self.PC);
-                                self.PC = self.readPC16();
+                                self.PC = dst;
                             } else {
                                 self.PC += 2;
                             }
@@ -494,8 +516,9 @@ pub const CPU = struct {
                     },
                     5 => if (bit3) blk: {
                         // CALL
+                        const dst = self.readPC16();
                         self.push(self.PC);
-                        self.PC = self.readPC16();
+                        self.PC = dst;
                         break :blk 3;
                     } else blk: {
                         // PUSH

@@ -10,7 +10,7 @@
             "request": "launch",
             "cwd": "${workspaceRoot}",
             "program": "${workspaceRoot}/zig-out/bin/GBEmu.exe",
-            "console": "internalConsole"
+            "console": "integratedTerminal"
         },
         {
             "name": "Unit tests",

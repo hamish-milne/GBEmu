@@ -335,7 +335,8 @@ pub const Memory = struct {
                     .MBC3 => |mbc3| mbc3.ROMBank,
                     .MBC5 => |mbc5| mbc5.ROMBank,
                 };
-                const fullAddr = (@as(u32, romBank) << 14) | addr;
+                const bank: u32 = if (romBank == 0) 1 else romBank;
+                const fullAddr = (bank << 14) | (addr & 0x3FFF);
                 break :blk if (fullAddr >= self.ROM.len) 0 else self.ROM[fullAddr];
             },
             0x8...0x9 => asBytes(VRAM, &self.VRAM)[addr & 0x1FFF],
