@@ -160,6 +160,22 @@ pub const Audio = struct {
     SampleBufferIdx: usize,
 
     pub fn main(self: *Audio, time: u64, ioPorts: *IOPorts, buffer: *AudioRingBuffer) void {
+        if (ioPorts.TAC.TimerStart) {
+            const period: u64 = switch (ioPorts.TAC.ClockSelect) {
+                0b00 => 0b111111111,
+                0b01 => 0b000000111,
+                0b10 => 0b000011111,
+                0b11 => 0b001111111,
+            };
+            if (time & period == 0) {
+                ioPorts.TIMA +%= 1;
+                if (ioPorts.TIMA == 0) {
+                    ioPorts.IF.Timer = true;
+                    ioPorts.TIMA = ioPorts.TMA;
+                }
+            }
+        }
+
         const doDiv = if (time & 0x7F == 0) blk: {
             ioPorts.DIV +%= 1;
             if (ioPorts.DIV & 0b11111 == 0) {

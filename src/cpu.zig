@@ -42,7 +42,6 @@ pub const CPU = struct {
         },
     },
     IME: bool,
-    sc: u32,
 
     mem: *Memory,
 
@@ -78,39 +77,48 @@ pub const CPU = struct {
         const a1: u9 = a;
         const result: u9 = a1 + b1 + c1;
         const value: u8 = @truncate(result);
+        const resultH = (a1 & 0xF) + (b1 & 0xF) + c1;
+        const c4 = resultH & 0b10000 != 0;
+        const c9 = result & 0b100000000 != 0;
         self.R.u8.F.Z = value == 0;
         self.R.u8.F.N = op == .Sub;
-        const resultH = (a1 & 0xF) + (b1 & 0xF) + c1;
         self.R.u8.F.H = switch (op) {
-            .Add => resultH & 0b10000 != 0,
-            .Sub => resultH & 0b10000 == 0,
+            .Add => c4,
+            .Sub => !c4,
         };
         if (carry != .None) {
             self.R.u8.F.C = switch (op) {
-                .Add => result & 0b100000000 != 0,
-                .Sub => result & 0b010000000 != 0,
+                .Add => c9,
+                .Sub => !c9,
             };
         }
         return value;
     }
 
-    fn add16(self: *CPU, a: u16, b: u16, setFlags: bool) u16 {
-        const result = @as(u32, a) + @as(u32, b);
+    fn add16s8(self: *CPU, a: u16, b: u8) u16 {
+        const bi = @as(i8, @bitCast(b));
+        // sign-extend b
+        const b16: u16 = @bitCast(@as(i16, bi));
+        const result = @as(u17, a) + b16;
         const value: u16 = @truncate(result);
-        if (setFlags) {
-            self.R.u8.F.Z = value == 0;
-            self.R.u8.F.N = false;
-            self.R.u8.F.H = (a & 0xFFF) + (b & 0xFFF) > 0xFFF;
-            self.R.u8.F.C = result > 0xFF;
-        }
+        self.R.u8.F = .{
+            ._ = 0,
+            .Z = false,
+            .N = false,
+            .H = (a & 0xF) + (b & 0xF) > 0xF,
+            .C = (a & 0xFF) + (b & 0xFF) > 0xFF,
+        };
         return value;
     }
 
     fn flags(self: *CPU, value: u8, h: bool, c: bool) u8 {
-        self.R.u8.F.Z = value == 0;
-        self.R.u8.F.N = false;
-        self.R.u8.F.H = h;
-        self.R.u8.F.C = c;
+        self.R.u8.F = .{
+            ._ = 0,
+            .Z = value == 0,
+            .N = false,
+            .H = h,
+            .C = c,
+        };
         return value;
     }
 
@@ -277,7 +285,14 @@ pub const CPU = struct {
                         if ((block2 & 1) == 0) {
                             regPtr.* = self.readPC16();
                         } else {
-                            self.R.u16.HL = self.add16(self.R.u16.HL, regPtr.*, true);
+                            const a: u17 = self.R.u16.HL;
+                            const b: u17 = regPtr.*;
+                            const result = a + b;
+                            const value: u16 = @truncate(result);
+                            self.R.u8.F.N = false;
+                            self.R.u8.F.H = (a & 0xFFF) + (b & 0xFFF) > 0xFFF;
+                            self.R.u8.F.C = result > 0xFFFF;
+                            self.R.u16.HL = value;
                         }
                         break :blk 3;
                     },
@@ -397,14 +412,12 @@ pub const CPU = struct {
                         },
                         // ADD SP,n
                         5 => blk: {
-                            const offset = self.readPC();
-                            self.SP = self.add16(self.SP, offset, false);
+                            self.SP = self.add16s8(self.SP, self.readPC());
                             break :blk 4;
                         },
                         // LDHL SP,n
                         7 => blk: {
-                            const offset = self.readPC();
-                            self.R.u16.HL = self.add16(self.SP, offset, false);
+                            self.R.u16.HL = self.add16s8(self.SP, self.readPC());
                             break :blk 3;
                         },
                     },
@@ -417,7 +430,7 @@ pub const CPU = struct {
                                 0 => self.R.u16.BC = value,
                                 1 => self.R.u16.DE = value,
                                 2 => self.R.u16.HL = value,
-                                3 => self.R.u16.AF = value,
+                                3 => self.R.u16.AF = value & 0xFFF0,
                             }
                             break :blk 3;
                         },
@@ -583,28 +596,24 @@ pub const CPU = struct {
 
     pub fn interrupt(self: *CPU) bool {
         const IOPorts = &self.mem.IOPorts;
-        const canDoInterrupts = switch (self.RunState) {
-            .Running => true,
-            .HALT => IOPorts.IF.Button,
-            .STOP => false,
-        };
-        if (self.IME and canDoInterrupts) {
-            const IF: u8 = @bitCast(IOPorts.IF);
-            const IE: u8 = self.mem.HiRAM[0x7F];
-            const interruptsN = IF & IE & 0b11111;
-            const interrupts: memory.InterruptFlags = @bitCast(interruptsN);
-            if (interruptsN != 0) {
+        const IF: u8 = @bitCast(IOPorts.IF);
+        const IE: u8 = self.mem.HiRAM[0x7F];
+        const interruptsN = IF & IE & 0b11111;
+        if (interruptsN != 0) {
+            self.RunState = .Running;
+            if (self.IME) {
                 self.IME = false;
-                IOPorts.IF = @bitCast(@as(u8, 0));
                 self.push(self.PC);
-                self.PC = if (interrupts.VBlank) 0x40
-                    else if (interrupts.LCDC) 0x48
-                    else if (interrupts.Timer) 0x50
-                    else if (interrupts.SerialIO) 0x58
-                    else if (interrupts.Button) 0x60
-                    else unreachable;
+                inline for(0..5) |i| {
+                    const bit = @as(u8, 1) << i;
+                    if (interruptsN & bit != 0) {
+                        IOPorts.IF = @bitCast(IF & ~bit);
+                        self.PC = 0x40 + (i << 3);
+                        return true;
+                    }
+                }
+                unreachable;
             }
-            return true;
         }
         return false;
     }

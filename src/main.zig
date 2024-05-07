@@ -55,7 +55,7 @@ pub fn main() !void {
     defer audioState.deinit();
 
     var state: GameState = undefined;
-    state.init(&audioState.Buffer, @embedFile("09-op r,r.gb"));
+    state.init(&audioState.Buffer, @embedFile("02-interrupts.gb"));
 
     // var vramBuf: [16 * 24 * 8 * 8]u8 = undefined;
 
@@ -96,9 +96,9 @@ pub fn main() !void {
         C.glfwSwapBuffers(window);
         C.glfwPollEvents();
 
-        // if (state.AudioBuffer.Count < audio.AudioRingBuffer.Length / 2) {
-        state.mainLoop();
-        // }
+        if (state.AudioBuffer.Count < audio.AudioRingBuffer.Length / 2) {
+            state.mainLoop();
+        }
 
         // C.glfwMakeContextCurrent(window2);
         // for (state.Memory.VRAM.Data, 0..) |tile, tileIdx| {

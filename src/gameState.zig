@@ -16,7 +16,6 @@ pub const GameState = struct {
 
     Time: struct {
         Current: u64 = 0,
-        NextInstruction: u64 = 0,
         LCD: u64 = 0,
     },
 
@@ -41,12 +40,16 @@ pub const GameState = struct {
         self.CPU.mem = &self.Memory;
         const IOPorts = &self.Memory.IOPorts;
         while (true) {
-            if (self.CPU.interrupt()) {
-                self.advanceWithAudio(self.Time.Current + 20);
-            }
-            while (self.CPU.RunState == .Running and self.Time.NextInstruction < self.Time.LCD) {
-                self.advanceWithAudio(self.Time.NextInstruction);
-                self.Time.NextInstruction = self.Time.Current + self.CPU.opMain() * 4;
+            while (self.CPU.RunState != .STOP and self.Time.Current < self.Time.LCD) {
+                if (self.CPU.RunState == .Running) {
+                    const nextTime = self.Time.Current + self.CPU.opMain() * 4;
+                    self.advanceWithAudio(nextTime);
+                } else {
+                    self.advanceWithAudio(self.Time.Current + 20);
+                }
+                if (self.CPU.interrupt()) {
+                    self.advanceWithAudio(self.Time.Current + 20);
+                }
             }
             self.advanceWithAudio(self.Time.LCD);
             if (IOPorts.LCDC.LCDEnable) {
