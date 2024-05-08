@@ -159,6 +159,22 @@ pub const Audio = struct {
     SampleBuffer: [ClockRate / (SampleRate * 1)][2]u16,
     SampleBufferIdx: usize,
 
+    fn addSample(self: *Audio, buffer: *AudioRingBuffer, sample: [2]u16) void {
+        self.SampleBuffer[self.SampleBufferIdx] = sample;
+        self.SampleBufferIdx += 1;
+
+        if (self.SampleBufferIdx >= self.SampleBuffer.len) {
+            self.SampleBufferIdx = 0;
+            // channel output * max volume * number of channels * buffer size
+            const MaxValue: f32 = @floatFromInt(0xF * 8 * 4 * self.SampleBuffer.len);
+            var avg: @Vector(2, u32) = .{ 0, 0 };
+            for (0..self.SampleBuffer.len) |i| {
+                avg += self.SampleBuffer[i];
+            }
+            buffer.write(.{ @as(f32, @floatFromInt(avg[0])) / MaxValue, @as(f32, @floatFromInt(avg[1])) / MaxValue });
+        }
+    }
+
     pub fn main(self: *Audio, time: u64, ioPorts: *IOPorts, buffer: *AudioRingBuffer) void {
         if (ioPorts.TAC.TimerStart) {
             const period: u64 = switch (ioPorts.TAC.ClockSelect) {
@@ -187,6 +203,7 @@ pub const Audio = struct {
 
         const NR52 = &ioPorts.NR52;
         if (!NR52.SoundEnable) {
+            self.addSample(buffer, .{ 0, 0 });
             return;
         }
 
@@ -368,24 +385,6 @@ pub const Audio = struct {
             s0 += if ((NR51.S01Channels & (1 << i)) != 0) self.Outputs[i] * (@as(u16, NR50.S01Volume) + 1) else 0;
             s1 += if ((NR51.S02Channels & (1 << i)) != 0) self.Outputs[i] * (@as(u16, NR50.S02Volume) + 1) else 0;
         }
-
-        self.SampleBuffer[self.SampleBufferIdx] = .{ s0, s1 };
-        self.SampleBufferIdx += 1;
-
-        // std.debug.print("{}\n", .{self.SampleBufferIdx});
-        if (self.SampleBufferIdx >= self.SampleBuffer.len) {
-            if (ioPorts.Sound1.Period != 0) {
-                // std.debug.print("C1: {}, {}, {}, {}, {}\n", .{ self.C1Length, self.C1Sweep, self.C1Period, self.C1Sample, self.C1Volume });
-            }
-            self.SampleBufferIdx = 0;
-            // channel output * max volume * number of channels * buffer size
-            const MaxValue: f32 = @floatFromInt(0xF * 8 * 4 * self.SampleBuffer.len);
-            var avg: @Vector(2, u32) = .{ 0, 0 };
-            for (0..self.SampleBuffer.len) |i| {
-                avg += self.SampleBuffer[i];
-            }
-            // std.debug.print("{},{}\n", .{ avg[0], avg[1] });
-            buffer.write(.{ @as(f32, @floatFromInt(avg[0])) / MaxValue, @as(f32, @floatFromInt(avg[1])) / MaxValue });
-        }
+        self.addSample(buffer, .{ s0, s1 });
     }
 };

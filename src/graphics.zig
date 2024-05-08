@@ -4,7 +4,10 @@ const Memory = memory.Memory;
 const TileDataFlag = memory.TileDataFlag;
 const Palette = memory.Palette;
 
-pub const Screen = [144][160]u8;
+pub const Width = 160;
+pub const Height = 144;
+
+pub const Screen = [Height][Width]u8;
 
 const Vec2 = @Vector(2, u8);
 

@@ -89,5 +89,6 @@ pub fn build(b: *std.Build) !void {
             obj.addObjectFile(.{ .path = try std.mem.concat(b.allocator, u8, &[_][]const u8{ "deps/lib/" ++ lib, target.staticLibSuffix() }) });
         }
         obj.addIncludePath(.{ .path = "deps/include" });
+        obj.addIncludePath(.{ .path = "." });
     }
 }
