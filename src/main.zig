@@ -47,7 +47,7 @@ pub fn main() !void {
     const window = C.glfwCreateWindow(160, 144, "Gameboy", null, null) orelse return error.OutOfMemory;
     // const window2 = C.glfwCreateWindow(16 * 8, 24 * 8, "VRAM", null, null) orelse return error.OutOfMemory;
     C.glfwMakeContextCurrent(window);
-    C.glfwSwapInterval(0);
+    C.glfwSwapInterval(1);
     defer C.glfwTerminate();
 
     var audioState: audio.State = .{};
@@ -55,7 +55,7 @@ pub fn main() !void {
     defer audioState.deinit();
 
     var state: GameState = undefined;
-    state.init(&audioState.Buffer, @embedFile("02-interrupts.gb"));
+    state.init(&audioState.Buffer, @embedFile("01-special.gb"));
 
     // var vramBuf: [16 * 24 * 8 * 8]u8 = undefined;
 

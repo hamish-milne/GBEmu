@@ -28,6 +28,7 @@ pub const GameState = struct {
 
     pub fn init(self: *GameState, audioBuffer: *audio.AudioRingBuffer, rom: []const u8) void {
         @memset(memory.asBytes(GameState, self), 0);
+        self.Memory.IOPorts.SPEED = 0xFF;
         self.Memory.BootROM = BootROM;
         self.Memory.ROM = rom;
         self.Memory.setMBC();

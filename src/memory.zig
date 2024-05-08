@@ -181,6 +181,8 @@ pub const IOPorts = extern struct {
     OBP1: u8 align(1),
     WY: u8 align(1),
     WX: u8 align(1),
+    _5: u8 align(1),
+    SPEED: u8 align(1),
     // _5: u32 align(1),
     // BOOT: packed struct {
     //     BOOT: bool,
