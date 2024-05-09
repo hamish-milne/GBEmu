@@ -20,7 +20,7 @@ pub fn main() !void {
     defer audioState.deinit();
 
     var state: GameState = undefined;
-    state.init(&audioState.Buffer, @embedFile("01-special.gb"));
+    state.init(&audioState.Buffer, @embedFile("bgbtest.gb"));
 
     C.glPixelTransferi(C.GL_MAP_COLOR, C.GL_TRUE);
     C.glPixelMapfv(C.GL_PIXEL_MAP_I_TO_A, 4, &[_]C.GLfloat{ 1.0, 1.0, 1.0, 1.0 });
@@ -49,11 +49,14 @@ pub fn main() !void {
     var time = C.glfwGetTime();
     var frameCount: u64 = 0;
 
+    const stdout = std.io.getStdOut();
+    _ = try stdout.write("\x1b[?25l\x1b[0m\x1b[2J");
+
     while (C.glfwWindowShouldClose(window) == 0) {
         const newTime = C.glfwGetTime();
         if (newTime - time >= 1.0) {
             time = newTime;
-            std.debug.print("FPS: {}\n", .{frameCount});
+            // std.debug.print("FPS: {}\n", .{frameCount});
             frameCount = 0;
         }
 
@@ -66,9 +69,49 @@ pub fn main() !void {
 
             C.glfwSwapBuffers(window);
             C.glfwPollEvents();
+
+            termidx = 0;
+            append("\x1b[H");
+            for (0..graphics.Height / 2) |y| {
+                for (0..graphics.Width) |x| {
+                    append("\x1b[38;5;");
+                    append(switch (state.Screen[graphics.Height - (y * 2) - 1][x]) {
+                        else => "255",
+                        1 => "248",
+                        2 => "238",
+                        3 => "232",
+                    });
+                    append("m\x1b[48;5;");
+                    append(switch (state.Screen[graphics.Height - (y * 2) - 2][x]) {
+                        else => "255",
+                        1 => "248",
+                        2 => "238",
+                        3 => "232",
+                    });
+                    append("m\u{2580}");
+                }
+                append("\x1b[0m\n");
+            }
+            _ = try stdout.write(termbuf[0..termidx]);
         } else {
             std.time.sleep(1_000_000);
         }
+    }
+}
+
+var termbuf: [512 * 1024]u8 = undefined;
+var termidx: usize = 0;
+
+fn append(str: []const u8) void {
+    for (str, 0..) |c, i| {
+        termbuf[termidx + i] = c;
+    }
+    termidx += str.len;
+}
+
+fn modify(str: []const u8, idx: usize) void {
+    for (str, 0..) |c, i| {
+        termbuf[idx + i] = c;
     }
 }
 
