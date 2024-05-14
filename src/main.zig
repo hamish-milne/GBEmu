@@ -49,8 +49,8 @@ pub fn main() !void {
     var time = C.glfwGetTime();
     var frameCount: u64 = 0;
 
-    const stdout = std.io.getStdOut();
-    _ = try stdout.write("\x1b[?25l\x1b[0m\x1b[2J");
+    // const stdout = std.io.getStdOut();
+    // _ = try stdout.write("\x1b[?25l\x1b[0m\x1b[2J");
 
     while (C.glfwWindowShouldClose(window) == 0) {
         const newTime = C.glfwGetTime();
@@ -70,29 +70,29 @@ pub fn main() !void {
             C.glfwSwapBuffers(window);
             C.glfwPollEvents();
 
-            termidx = 0;
-            append("\x1b[H");
-            for (0..graphics.Height / 2) |y| {
-                for (0..graphics.Width) |x| {
-                    append("\x1b[38;5;");
-                    append(switch (state.Screen[graphics.Height - (y * 2) - 1][x]) {
-                        else => "255",
-                        1 => "248",
-                        2 => "238",
-                        3 => "232",
-                    });
-                    append("m\x1b[48;5;");
-                    append(switch (state.Screen[graphics.Height - (y * 2) - 2][x]) {
-                        else => "255",
-                        1 => "248",
-                        2 => "238",
-                        3 => "232",
-                    });
-                    append("m\u{2580}");
-                }
-                append("\x1b[0m\n");
-            }
-            _ = try stdout.write(termbuf[0..termidx]);
+            // termidx = 0;
+            // append("\x1b[H");
+            // for (0..graphics.Height / 2) |y| {
+            //     for (0..graphics.Width) |x| {
+            //         append("\x1b[38;5;");
+            //         append(switch (state.Screen[graphics.Height - (y * 2) - 1][x]) {
+            //             else => "255",
+            //             1 => "248",
+            //             2 => "238",
+            //             3 => "232",
+            //         });
+            //         append("m\x1b[48;5;");
+            //         append(switch (state.Screen[graphics.Height - (y * 2) - 2][x]) {
+            //             else => "255",
+            //             1 => "248",
+            //             2 => "238",
+            //             3 => "232",
+            //         });
+            //         append("m\u{2580}");
+            //     }
+            //     append("\x1b[0m\n");
+            // }
+            // _ = try stdout.write(termbuf[0..termidx]);
         } else {
             std.time.sleep(1_000_000);
         }

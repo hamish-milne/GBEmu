@@ -13,7 +13,7 @@ const Vec2 = @Vector(2, u8);
 
 fn renderTile(self: *Memory, tileIdx: u8, offset: Vec2, tileData: TileDataFlag, palette: u8) u2 {
     const tileIdx_: u16 = tileIdx;
-    const tile = self.VRAM.Data[if (tileData == .x80) tileIdx_ else ((tileIdx_ ^ 0x80) + 0x80)];
+    const tile = &self.VRAM.Data[if (tileData == .x80) tileIdx_ else ((tileIdx_ ^ 0x80) + 0x80)];
     const tileRow = tile[@intCast(offset[1])];
     const tileCol: u4 = @intCast(offset[0]);
     const rawColor = ((tileRow >> (7 - tileCol)) & 1) | (((tileRow >> (15 - tileCol)) & 1) << 1);
@@ -40,13 +40,14 @@ fn spriteCmp(self: *Memory, a: u8, b: u8) bool {
 // zig fmt: off
 pub fn drawLine(self: *Memory, screen: *Screen) void {
     const scroll = Vec2{ self.IOPorts.SCX, self.IOPorts.SCY };
-    const wndPos = Vec2{ self.IOPorts.WX, self.IOPorts.WY };
+    const WX = self.IOPorts.WX;
+    const WY = self.IOPorts.WY;
     const tallSprites = self.IOPorts.LCDC.SpriteSize == .S8x16;
     var lineSprites: [40]u8 = undefined;
     for (&lineSprites, 0..) |*s, i| {
         s.* = @intCast(40 - 1 - i);
     }
-    std.sort.heap(u8, &lineSprites, self, spriteCmp);
+    std.sort.insertion(u8, &lineSprites, self, spriteCmp);
     const y = self.IOPorts.LY;
     for (&screen[screen.len - y - 1], 0..) |*pixel, x| {
         var color: u2 = 0;
@@ -59,22 +60,21 @@ pub fn drawLine(self: *Memory, screen: *Screen) void {
             );
         }
         if (self.IOPorts.LCDC.WindowEnable
-            and wndPos[0] <= 166
-            and wndPos[1] <= 143
-            and screenPos[0] >= wndPos[0]
-            and screenPos[1] >= wndPos[1]
+            and WX <= 166
+            and WY <= 143
+            and x >= WX
+            and y >= WY
         ) {
             color = renderTileMap(self,
-                screenPos -% wndPos,
+                screenPos -% Vec2{ WX, WY },
                 self.IOPorts.LCDC.WindowTileMap,
                 self.IOPorts.LCDC.BGWindowTileData
             );
         }
         for (lineSprites) |idx| {
             const sprite = self.OAM[idx];
-            const spritePos = Vec2{ sprite.X, sprite.Y };
-            var spriteX = @as(i16, screenPos[0]) - spritePos[0] - 8;
-            var spriteY = @as(i16, screenPos[1]) - spritePos[1] - 16;
+            var spriteX = @as(i16, @intCast(x)) - sprite.X - 8;
+            var spriteY = @as(i16, @intCast(y)) - sprite.Y - 16;
             const palette = switch (sprite.Flags.Palette) {
                 .OBJ0PAL => self.IOPorts.OBP0,
                 .OBJ1PAL => self.IOPorts.OBP1,

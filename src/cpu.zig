@@ -17,33 +17,38 @@ pub const CPU = struct {
     } = .None,
     SP: u16,
     PC: u16,
-    R: packed union {
-        u8: packed struct {
-            F: packed struct {
-                _: u4,
-                C: bool,
-                H: bool,
-                N: bool,
-                Z: bool,
-            },
-            A: u8,
-            C: u8,
-            B: u8,
-            E: u8,
-            D: u8,
-            L: u8,
-            H: u8,
+    A: u8,
+    C: bool,
+    H: bool,
+    N: bool,
+    Z: bool,
+    R: extern union {
+        u8: extern struct {
+            C: u8 align(1),
+            B: u8 align(1),
+            E: u8 align(1),
+            D: u8 align(1),
+            L: u8 align(1),
+            H: u8 align(1),
         },
-        u16: packed struct {
-            AF: u16,
-            BC: u16,
-            DE: u16,
-            HL: u16,
+        u16: extern struct {
+            BC: u16 align(2),
+            DE: u16 align(2),
+            HL: u16 align(2),
         },
     },
     IME: bool,
 
     mem: *Memory,
+
+    const AF = packed struct {
+        _: u4,
+        C: bool,
+        H: bool,
+        N: bool,
+        Z: bool,
+        A: u8,
+    };
 
     fn read(self: *CPU, addr: u16) u8 {
         return self.mem.read(addr);
@@ -63,7 +68,7 @@ pub const CPU = struct {
 
     fn add(self: *CPU, a: u8, b: u8, op: enum { Add, Sub }, carry: enum { None, Set, In }) u8 {
         const c: u1 = switch (carry) {
-            .In => if (self.R.u8.F.C) 1 else 0,
+            .In => if (self.C) 1 else 0,
             else => 0,
         };
         const c1 = switch (op) {
@@ -80,14 +85,14 @@ pub const CPU = struct {
         const resultH = (a1 & 0xF) + (b1 & 0xF) + c1;
         const c4 = resultH & 0b10000 != 0;
         const c9 = result & 0b100000000 != 0;
-        self.R.u8.F.Z = value == 0;
-        self.R.u8.F.N = op == .Sub;
-        self.R.u8.F.H = switch (op) {
+        self.Z = value == 0;
+        self.N = op == .Sub;
+        self.H = switch (op) {
             .Add => c4,
             .Sub => !c4,
         };
         if (carry != .None) {
-            self.R.u8.F.C = switch (op) {
+            self.C = switch (op) {
                 .Add => c9,
                 .Sub => !c9,
             };
@@ -101,24 +106,18 @@ pub const CPU = struct {
         const b16: u16 = @bitCast(@as(i16, bi));
         const result = @as(u17, a) + b16;
         const value: u16 = @truncate(result);
-        self.R.u8.F = .{
-            ._ = 0,
-            .Z = false,
-            .N = false,
-            .H = (a & 0xF) + (b & 0xF) > 0xF,
-            .C = (a & 0xFF) + (b & 0xFF) > 0xFF,
-        };
+        self.Z = false;
+        self.N = false;
+        self.H = (a & 0xF) + (b & 0xF) > 0xF;
+        self.C = (a & 0xFF) + (b & 0xFF) > 0xFF;
         return value;
     }
 
     fn flags(self: *CPU, value: u8, h: bool, c: bool) u8 {
-        self.R.u8.F = .{
-            ._ = 0,
-            .Z = value == 0,
-            .N = false,
-            .H = h,
-            .C = c,
-        };
+        self.Z = value == 0;
+        self.N = false;
+        self.H = h;
+        self.C = c;
         return value;
     }
 
@@ -131,7 +130,7 @@ pub const CPU = struct {
             4 => self.R.u8.H,
             5 => self.R.u8.L,
             6 => self.read(self.R.u16.HL),
-            7 => self.R.u8.A,
+            7 => self.A,
         };
     }
 
@@ -144,7 +143,7 @@ pub const CPU = struct {
             4 => self.R.u8.H = value,
             5 => self.R.u8.L = value,
             6 => self.write(self.R.u16.HL, value),
-            7 => self.R.u8.A = value,
+            7 => self.A = value,
         }
     }
 
@@ -205,7 +204,7 @@ pub const CPU = struct {
             // RLC, RRC
             0, 1 => newC,
             // RL, RR
-            2, 3 => if (self.R.u8.F.C) 1 else 0,
+            2, 3 => if (self.C) 1 else 0,
         };
         const newValue = switch (variant) {
             // RL, RLC
@@ -219,10 +218,10 @@ pub const CPU = struct {
     fn cond(self: *CPU, inst: u8) bool {
         const selector: u2 = @intCast((inst & 0b00011000) >> 3);
         return switch (selector) {
-            0 => !self.R.u8.F.Z,
-            1 => self.R.u8.F.Z,
-            2 => !self.R.u8.F.C,
-            3 => self.R.u8.F.C
+            0 => !self.Z,
+            1 => self.Z,
+            2 => !self.C,
+            3 => self.C
         };
     }
 
@@ -289,9 +288,9 @@ pub const CPU = struct {
                             const b: u17 = regPtr.*;
                             const result = a + b;
                             const value: u16 = @truncate(result);
-                            self.R.u8.F.N = false;
-                            self.R.u8.F.H = (a & 0xFFF) + (b & 0xFFF) > 0xFFF;
-                            self.R.u8.F.C = result > 0xFFFF;
+                            self.N = false;
+                            self.H = (a & 0xFFF) + (b & 0xFFF) > 0xFFF;
+                            self.C = result > 0xFFFF;
                             self.R.u16.HL = value;
                         }
                         break :blk 3;
@@ -306,9 +305,9 @@ pub const CPU = struct {
                             3 => .{ .a = &self.R.u16.HL, .b = -1 },
                         };
                         if (!bit3) {
-                            self.write(regPtr.a.*, self.R.u8.A);
+                            self.write(regPtr.a.*, self.A);
                         } else {
-                            self.R.u8.A = self.read(regPtr.a.*);
+                            self.A = self.read(regPtr.a.*);
                         }
                         regPtr.a.* +%= @bitCast(regPtr.b);
                         break :blk 2;
@@ -336,43 +335,43 @@ pub const CPU = struct {
                     7 => switch (block2) {
                         else => blk: {
                             // RLCA, RRCA, RLA, RRA
-                            self.R.u8.A = self.rotate(@intCast(block2), self.R.u8.A);
-                            self.R.u8.F.Z = false;
+                            self.A = self.rotate(@intCast(block2), self.A);
+                            self.Z = false;
                             break :blk 1;
                         },
                         4 => blk: {
                             // DAA
-                            const a = self.R.u8.A;
-                            const n = self.R.u8.F.N;
-                            const d0: u8 = if (self.R.u8.F.H or (!n and (a & 0xF) > 9)) 0x6 else 0;
-                            const d1: u8 = if (self.R.u8.F.C or (!n and a > 0x99)) 0x60 else 0;
+                            const a = self.A;
+                            const n = self.N;
+                            const d0: u8 = if (self.H or (!n and (a & 0xF) > 9)) 0x6 else 0;
+                            const d1: u8 = if (self.C or (!n and a > 0x99)) 0x60 else 0;
                             const d = d0 + d1;
                             const result = if (n) a -% d else a +% d;
-                            self.R.u8.A = result;
-                            self.R.u8.F.Z = result == 0;
-                            self.R.u8.F.C = d1 != 0;
-                            self.R.u8.F.H = false;
+                            self.A = result;
+                            self.Z = result == 0;
+                            self.C = d1 != 0;
+                            self.H = false;
                             break :blk 1;
                         },
                         5 => blk: {
                             // CPL
-                            self.R.u8.A = ~self.R.u8.A;
-                            self.R.u8.F.N = true;
-                            self.R.u8.F.H = true;
+                            self.A = ~self.A;
+                            self.N = true;
+                            self.H = true;
                             break :blk 1;
                         },
                         6 => blk: {
                             // SCF
-                            self.R.u8.F.N = false;
-                            self.R.u8.F.H = false;
-                            self.R.u8.F.C = true;
+                            self.N = false;
+                            self.H = false;
+                            self.C = true;
                             break :blk 1;
                         },
                         7 => blk: {
                             // CCF
-                            self.R.u8.F.N = false;
-                            self.R.u8.F.H = false;
-                            self.R.u8.F.C = !self.R.u8.F.C;
+                            self.N = false;
+                            self.H = false;
+                            self.C = !self.C;
                             break :blk 1;
                         },
                     }
@@ -383,14 +382,14 @@ pub const CPU = struct {
                 // ADD, ADC, SUB, SBC, AND, XOR, OR, CP (8 bit, immediate or register)
                 const value = if (!bit6) self.readReg(block1) else self.readPC();
                 switch (block2) {
-                    0 => self.R.u8.A = self.add(self.R.u8.A, value, .Add, .Set),
-                    1 => self.R.u8.A = self.add(self.R.u8.A, value, .Add, .In),
-                    2 => self.R.u8.A = self.add(self.R.u8.A, value, .Sub, .Set),
-                    3 => self.R.u8.A = self.add(self.R.u8.A, value, .Sub, .In),
-                    4 => self.R.u8.A = self.flags(self.R.u8.A & value, true, false),
-                    5 => self.R.u8.A = self.flags(self.R.u8.A ^ value, false, false),
-                    6 => self.R.u8.A = self.flags(self.R.u8.A | value, false, false),
-                    7 => _ = self.add(self.R.u8.A, value, .Sub, .Set),
+                    0 => self.A = self.add(self.A, value, .Add, .Set),
+                    1 => self.A = self.add(self.A, value, .Add, .In),
+                    2 => self.A = self.add(self.A, value, .Sub, .Set),
+                    3 => self.A = self.add(self.A, value, .Sub, .In),
+                    4 => self.A = self.flags(self.A & value, true, false),
+                    5 => self.A = self.flags(self.A ^ value, false, false),
+                    6 => self.A = self.flags(self.A | value, false, false),
+                    7 => _ = self.add(self.A, value, .Sub, .Set),
                 }
                 return if (!bit6) regCost(block1) else 2;
             } else {
@@ -405,12 +404,12 @@ pub const CPU = struct {
                         },
                         // LD (n),A
                         4 => blk: {
-                            self.write(0xFF00 + @as(u16, self.readPC()), self.R.u8.A);
+                            self.write(0xFF00 + @as(u16, self.readPC()), self.A);
                             break :blk 3;
                         },
                         // LD A,(n)
                         6 => blk: {
-                            self.R.u8.A = self.read(0xFF00 + @as(u16, self.readPC()));
+                            self.A = self.read(0xFF00 + @as(u16, self.readPC()));
                             break :blk 3;
                         },
                         // ADD SP,n
@@ -433,7 +432,14 @@ pub const CPU = struct {
                                 0 => self.R.u16.BC = value,
                                 1 => self.R.u16.DE = value,
                                 2 => self.R.u16.HL = value,
-                                3 => self.R.u16.AF = value & 0xFFF0,
+                                3 => {
+                                    const af: AF = @bitCast(value);
+                                    self.A = af.A;
+                                    self.C = af.C;
+                                    self.H = af.H;
+                                    self.N = af.N;
+                                    self.Z = af.Z;
+                                },
                             }
                             break :blk 3;
                         },
@@ -471,22 +477,22 @@ pub const CPU = struct {
                         },
                         // LD (C),A
                         4 => blk: {
-                            self.write(0xFF00 + @as(u16, self.R.u8.C), self.R.u8.A);
+                            self.write(0xFF00 + @as(u16, self.R.u8.C), self.A);
                             break :blk 2;
                         },
                         // LD (nn),A
                         5 => blk: {
-                            self.write(self.readPC16(), self.R.u8.A);
+                            self.write(self.readPC16(), self.A);
                             break :blk 4;
                         },
                         // LD A,(C)
                         6 => blk: {
-                            self.R.u8.A = self.read(0xFF00 + @as(u16, self.R.u8.C));
+                            self.A = self.read(0xFF00 + @as(u16, self.R.u8.C));
                             break :blk 2;
                         },
                         // LD A,(nn)
                         7 => blk: {
-                            self.R.u8.A = self.read(self.readPC16());
+                            self.A = self.read(self.readPC16());
                             break :blk 4;
                         },
                     },
@@ -543,7 +549,14 @@ pub const CPU = struct {
                             0 => self.R.u16.BC,
                             1 => self.R.u16.DE,
                             2 => self.R.u16.HL,
-                            3 => self.R.u16.AF
+                            3 => @bitCast(AF {
+                                .A = self.A,
+                                ._ = 0,
+                                .C = self.C,
+                                .H = self.H,
+                                .N = self.N,
+                                .Z = self.Z,
+                            }),
                         });
                         break :blk 3;
                     },
@@ -583,9 +596,9 @@ pub const CPU = struct {
             },
             1 => {
                 // BIT
-                self.R.u8.F.Z = (value & bit) == 0;
-                self.R.u8.F.N = false;
-                self.R.u8.F.H = true;
+                self.Z = (value & bit) == 0;
+                self.N = false;
+                self.H = true;
                 return cost;
             },
             // RES
