@@ -9,11 +9,6 @@ pub const InterruptFlags = packed struct {
     _: u3,
 };
 
-pub const TileDataFlag = enum(u1) {
-    x88,
-    x80,
-};
-
 pub const Palette = std.PackedIntArray(u2, 4);
 pub const WavePattern = std.PackedIntArray(u4, 32);
 
@@ -144,12 +139,9 @@ pub const IOPorts = extern struct {
     LCDC: packed struct {
         BGEnable: bool,
         SpriteEnable: bool,
-        SpriteSize: enum(u1) {
-            S8x8,
-            S8x16,
-        },
+        TallSprites: bool,
         BGTileMap: u1,
-        BGWindowTileData: TileDataFlag,
+        BGUseObjData: bool,
         WindowEnable: bool,
         WindowTileMap: u1,
         LCDEnable: bool
@@ -192,12 +184,12 @@ pub const IOPorts = extern struct {
 
 const WriteMask: IOPorts = .{
     .P1 = 0b00110000,
-    .SB = 0b11111111,
+    .SB = 0xff,
     .SC = 0b10000001,
     ._ = 0,
     .DIV = 0,
-    .TIMA = 0b11111111,
-    .TMA = 0b11111111,
+    .TIMA = 0xff,
+    .TMA = 0xff,
     .TAC = 0b00000111,
     ._1 = .{ 0, 0, 0, 0, 0, 0, 0 },
     .IF = .{
@@ -208,6 +200,116 @@ const WriteMask: IOPorts = .{
         .Button = true,
         ._ = 0,
     },
+    .NR10 = 0xff,
+    .Sound1 = .{
+        .SoundLength = 0b111111,
+        .WaveDuty = 0b11,
+        .EnvelopeSweep = 0b111,
+        .EnvelopeDirection = 0b1,
+        .InitialVolume = 0b1111,
+        .Period = 0b11111111111,
+        ._1 = 0b111,
+        .LengthEnable = true,
+        .Initial = true,
+    },
+    ._2 = 0,
+    .Sound2 = .{
+        .SoundLength = 0b111111,
+        .WaveDuty = 0b11,
+        .EnvelopeSweep = 0b111,
+        .EnvelopeDirection = 0b1,
+        .InitialVolume = 0b1111,
+        .Period = 0b11111111111,
+        ._ = 0b111,
+        .LengthEnable = true,
+        .Initial = true,
+    },
+    .NR30 = .{
+        ._ = 0b1111111,
+        .Enable = true,
+    },
+    .Sound3 = .{
+        .Length = 0b11111111,
+        ._1 = 0b11111,
+        .InitialVolume = 0b11,
+        ._2 = 0b1,
+        .Period = 0b11111111111,
+        ._3 = 0b111,
+        .LengthEnable = true,
+        .Initial = true,
+    },
+    ._3 = 0,
+    .Sound4 = .{
+        .SoundLength = 0b111111,
+        ._ = 0b11,
+        .EnvelopeSweep = 0b111,
+        .EnvelopeDirection = 0b1,
+        .Volume = 0b1111,
+        .FreqDiv = 0b111,
+        .Step = 0b1,
+        .Freq = 0b1111,
+        ._1 = 0b111111,
+        .LengthEnable = true,
+        .Initial = true,
+    },
+    .NR50 = .{
+        .S01Volume = 0b111,
+        .S01Vin = true,
+        .S02Volume = 0b111,
+        .S02Vin = true,
+    },
+    .NR51 = .{
+        .S01Channels = 0b1111,
+        .S02Channels = 0b1111,
+    },
+    .NR52 = .{
+        .C1Active = true,
+        .C2Active = true,
+        .C3Active = true,
+        .C4Active = true,
+        ._ = 0b111,
+        .SoundEnable = true,
+    },
+    ._4 = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    .WavePattern = [16]u8{
+        0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff,
+    },
+    .LCDC = .{
+        .BGEnable = true,
+        .SpriteEnable = true,
+        .TallSprites = true,
+        .BGTileMap = 0b1,
+        .BGUseObjData = true,
+        .WindowEnable = true,
+        .WindowTileMap = 0b1,
+        .LCDEnable = true,
+    },
+    .STAT = .{
+        .Mode = @bitCast(0),
+        .LYCCoincidence = false,
+        .InterruptEnable = .{
+            .HBlank = true,
+            .VBlank = true,
+            .OAMRead = true,
+            .LYCCoincidence = true,
+        },
+        ._ = 0,
+    },
+    .SCY = 0xff,
+    .SCX = 0xff,
+    .LY = 0,
+    .LYC = 0xff,
+    .DMA = 0xff,
+    .BGP = 0xff,
+    .OBP0 = 0xff,
+    .OBP1 = 0xff,
+    .WY = 0xff,
+    .WX = 0xff,
+    ._5 = 0,
+    .SPEED = 0xff,
 };
 
 fn specialRegs(offset: u8) void {

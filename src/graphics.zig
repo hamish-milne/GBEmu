@@ -1,7 +1,11 @@
 const std = @import("std");
 const memory = @import("memory.zig");
 const Memory = memory.Memory;
-const TileDataFlag = memory.TileDataFlag;
+
+const TileDataFlag = enum(u1) {
+    x88,
+    x80,
+};
 const Palette = memory.Palette;
 
 pub const Width = 160;
@@ -42,7 +46,10 @@ pub fn drawLine(self: *Memory, screen: *Screen) void {
     const scroll = Vec2{ self.IOPorts.SCX, self.IOPorts.SCY };
     const WX = self.IOPorts.WX;
     const WY = self.IOPorts.WY;
-    const tallSprites = self.IOPorts.LCDC.SpriteSize == .S8x16;
+    const tallSprites = self.IOPorts.LCDC.TallSprites;
+    const bgTileMap = self.IOPorts.LCDC.BGTileMap;
+    const windowTileMap = self.IOPorts.LCDC.WindowTileMap;
+    const bgWindowTileData = if (self.IOPorts.LCDC.BGUseObjData) .x80 else .x88;
     var lineSprites: [40]u8 = undefined;
     for (&lineSprites, 0..) |*s, i| {
         s.* = @intCast(40 - 1 - i);
@@ -55,8 +62,8 @@ pub fn drawLine(self: *Memory, screen: *Screen) void {
         if (self.IOPorts.LCDC.BGEnable) {
             color = renderTileMap(self,
                 screenPos +% scroll,
-                self.IOPorts.LCDC.BGTileMap,
-                self.IOPorts.LCDC.BGWindowTileData
+                bgTileMap,
+                bgWindowTileData
             );
         }
         if (self.IOPorts.LCDC.WindowEnable
@@ -67,8 +74,8 @@ pub fn drawLine(self: *Memory, screen: *Screen) void {
         ) {
             color = renderTileMap(self,
                 screenPos -% Vec2{ WX, WY },
-                self.IOPorts.LCDC.WindowTileMap,
-                self.IOPorts.LCDC.BGWindowTileData
+                windowTileMap,
+                bgWindowTileData
             );
         }
         for (lineSprites) |idx| {
