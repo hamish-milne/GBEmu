@@ -17,6 +17,15 @@ pub fn build(b: *std.Build) !void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const targetTrip = blk: {
+        var target2 = target;
+        target2.cpu_model = .baseline;
+        if (target.isWindows()) {
+            target2.abi = .msvc;
+        }
+        break :blk target2;
+    };
+
     const options = .{
         .name = "GBEmu",
         // In this case the main source file is merely a path, however, in more
@@ -24,12 +33,21 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = .{ .path = "src/main.zig" },
         .optimize = optimize,
         .link_libc = true,
-        .target = if (target.isWindows()) blk: {
-            var target2 = target;
-            target2.abi = .msvc;
-            break :blk target2;
-        } else target,
+        .target = targetTrip,
     };
+
+    const glad = b.addObject(.{
+        .name = "glad",
+        .optimize = optimize,
+        .link_libc = true,
+        .target = targetTrip,
+    });
+    // https://github.com/ziglang/zig/issues/19423
+    glad.addCSourceFile(.{
+        .file = .{ .path = "src/gl.c" },
+        .flags = &[_][]const u8{ "-std=c99", "-pedantic", "-Werror", "-Wall", "-DGLAD_API_CALL=" },
+    });
+    glad.addIncludePath(.{ .path = "include" });
 
     const exe = b.addExecutable(options);
 
@@ -79,8 +97,9 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(&run_unit_tests.step);
 
     inline for (.{ exe, unit_tests }) |obj| {
+        obj.addObject(glad);
         if (target.isWindows()) {
-            inline for (.{ "User32", "Shell32", "Ole32", "Gdi32", "OpenGL32" }) |lib| {
+            inline for (.{ "User32", "Shell32", "Ole32", "Gdi32" }) |lib| {
                 obj.linkSystemLibrary(lib);
             }
         }
@@ -89,6 +108,6 @@ pub fn build(b: *std.Build) !void {
             obj.addObjectFile(.{ .path = try std.mem.concat(b.allocator, u8, &[_][]const u8{ "deps/lib/" ++ lib, target.staticLibSuffix() }) });
         }
         obj.addIncludePath(.{ .path = "deps/include" });
-        obj.addIncludePath(.{ .path = "." });
+        obj.addIncludePath(.{ .path = "include" });
     }
 }

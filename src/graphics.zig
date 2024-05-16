@@ -49,7 +49,7 @@ pub fn drawLine(self: *Memory, screen: *Screen) void {
     const tallSprites = self.IOPorts.LCDC.TallSprites;
     const bgTileMap = self.IOPorts.LCDC.BGTileMap;
     const windowTileMap = self.IOPorts.LCDC.WindowTileMap;
-    const bgWindowTileData = if (self.IOPorts.LCDC.BGUseObjData) .x80 else .x88;
+    const bgWindowTileData: TileDataFlag = if (self.IOPorts.LCDC.BGUseObjData) .x80 else .x88;
     var lineSprites: [40]u8 = undefined;
     for (&lineSprites, 0..) |*s, i| {
         s.* = @intCast(40 - 1 - i);

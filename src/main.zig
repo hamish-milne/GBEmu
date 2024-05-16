@@ -13,7 +13,7 @@ pub fn main() !void {
 
     C.glfwMakeContextCurrent(window);
     C.glfwSwapInterval(0);
-    _ = C.gladLoadGL(C.glfwGetProcAddress);
+    _ = C.gladSetGLOnDemandLoader(C.glfwGetProcAddress);
 
     var audioState: audio.State = .{};
     try audioState.init();
